@@ -32,6 +32,8 @@ const profileDialogMode = ref('')
 const profileDialogTitle = ref('')
 const profileDialogValue = ref('')
 const profileDialogValue2 = ref('')
+const transcribingIds = ref([])
+const deletingIds = ref([])
 const roleOptions = ['普通用户', '管理员']
 const avatarOptions = [
   { value: 'glasses', label: '👓' },
@@ -165,6 +167,20 @@ const loadRecordings = async () => {
     appendLog('❌ 加载失败: ' + e.message)
   }
 }
+
+const markPending = (targetRef, id) => {
+  if (!targetRef.value.includes(id)) {
+    targetRef.value = [...targetRef.value, id]
+  }
+}
+
+const clearPending = (targetRef, id) => {
+  targetRef.value = targetRef.value.filter(itemId => itemId !== id)
+}
+
+const isTranscribing = (id) => transcribingIds.value.includes(id)
+
+const isDeleting = (id) => deletingIds.value.includes(id)
 
 const drawSilent = () => {
   if (!ctx.value) return
@@ -353,13 +369,55 @@ const saveName = async (item) => {
 }
 
 const transcribeItem = async (item) => {
+  if (!item?.id || isTranscribing(item.id)) {
+    return
+  }
+
+  markPending(transcribingIds, item.id)
   try {
-    await apiFetch(`/recordings/${item.id}/transcribe`, {
+    const res = await apiFetch(`/recordings/${item.id}/transcribe`, {
       method: 'POST'
     })
+    const data = await res.json()
+    if (!res.ok || !data.success) {
+      throw new Error(data.error || data.message || '转写失败')
+    }
+    appendLog(`✅ ${item.name || `录音 ${item.id}`} 转写完成`)
     await loadRecordings()
   } catch (e) {
     console.error(e)
+    alert('转写失败: ' + e.message)
+  } finally {
+    clearPending(transcribingIds, item.id)
+  }
+}
+
+const deleteRecording = async (item) => {
+  if (!item?.id || isDeleting(item.id)) {
+    return
+  }
+
+  const confirmed = window.confirm(`确定删除“${item.name || `录音 ${item.id}`}”吗？删除后无法恢复。`)
+  if (!confirmed) {
+    return
+  }
+
+  markPending(deletingIds, item.id)
+  try {
+    const res = await apiFetch(`/recordings/${item.id}`, {
+      method: 'DELETE'
+    })
+    const data = await res.json()
+    if (!res.ok || !data.success) {
+      throw new Error(data.error || data.message || '删除失败')
+    }
+    recordings.value = recordings.value.filter(record => record.id !== item.id)
+    appendLog(`🗑️ 已删除 ${item.name || `录音 ${item.id}`}`)
+  } catch (e) {
+    console.error(e)
+    alert('删除失败: ' + e.message)
+  } finally {
+    clearPending(deletingIds, item.id)
   }
 }
 
@@ -597,13 +655,24 @@ onMounted(() => {
                 <div v-if="item.content && item.content.trim() !== ''" style="margin-top:8px; padding:8px; background:#f0f7ff; border-radius:6px; font-size:0.9rem; color:#2e7d8f;">
                   📝 {{ item.content }}
                 </div>
-                <div v-else style="margin-top:8px;">
-                  <button @click="transcribeItem(item)" style="padding:4px 12px; font-size:0.8rem; background:#2e7d8f; color:white; border:none; border-radius:4px; cursor:pointer;">
-                    🔄 转文字
+                <div class="record-actions">
+                  <button
+                    class="record-action-btn record-action-primary"
+                    :disabled="isTranscribing(item.id) || isDeleting(item.id)"
+                    @click="transcribeItem(item)"
+                  >
+                    {{ isTranscribing(item.id) ? '翻译中...' : (item.content && item.content.trim() !== '' ? '重新翻译' : '转文字') }}
+                  </button>
+                  <button
+                    class="record-action-btn record-action-danger"
+                    :disabled="isDeleting(item.id) || isTranscribing(item.id)"
+                    @click="deleteRecording(item)"
+                  >
+                    {{ isDeleting(item.id) ? '删除中...' : '删除录音' }}
                   </button>
                 </div>
               </div>
-              <button class="play-btn" @click="playAudio(`${getBaseUrl()}/uploads/${item.filename}`, $event.target)">▶</button>
+              <button class="play-btn" @click="playAudio(`${getBaseUrl()}/recordings/${item.id}/media`, $event.target)">▶</button>
             </div>
           </div>
         </div>
@@ -854,6 +923,31 @@ body {
 .record-meta {
   font-size: 0.75rem;
   color: #8daec4;
+}
+.record-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+}
+.record-action-btn {
+  padding: 6px 12px;
+  font-size: 0.8rem;
+  border: none;
+  border-radius: 999px;
+  cursor: pointer;
+}
+.record-action-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+.record-action-primary {
+  background: #2e7d8f;
+  color: #fff;
+}
+.record-action-danger {
+  background: #fff1f1;
+  color: #d14c4c;
 }
 .play-btn {
   width: 40px;
