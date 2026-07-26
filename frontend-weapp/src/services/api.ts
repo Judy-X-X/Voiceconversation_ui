@@ -1,0 +1,141 @@
+import Taro from '@tarojs/taro';
+import type { RecordingItem } from '@/types/recording';
+import type { UserInfo } from '@/types/user';
+import { getBackendUrl, getBaseUrl, getCurrentUser, setCurrentUser } from '@/utils/storage';
+
+interface ApiResponse<T = unknown> {
+  success?: boolean;
+  message?: string;
+  error?: string;
+  id?: number;
+  user?: UserInfo;
+  text?: string;
+  data?: T;
+}
+
+const request = async <T = unknown>(
+  path: string,
+  options: Partial<Parameters<typeof Taro.request>[0]> = {}
+): Promise<T> => {
+  const currentUser = getCurrentUser();
+  const response = await Taro.request<T & ApiResponse>({
+    url: `${getBaseUrl()}${path}`,
+    method: options.method || 'GET',
+    data: options.data,
+    enableCookie: true,
+    header: {
+      'content-type': 'application/json',
+      ...(currentUser?.id ? { 'X-User-Id': String(currentUser.id) } : {}),
+      ...(options.header || {})
+    }
+  });
+
+  const data = response.data as T & ApiResponse;
+  if (response.statusCode >= 400) {
+    throw new Error(data?.message || data?.error || `请求失败: ${response.statusCode}`);
+  }
+
+  return data;
+};
+
+export const loginUser = async (username: string, password: string) => {
+  const data = await request<ApiResponse>('/api/user/login', {
+    method: 'POST',
+    data: { username, password }
+  });
+
+  if (!data.success || !data.user) {
+    throw new Error(data.message || '用户名或密码错误');
+  }
+
+  setCurrentUser(data.user);
+  return data.user;
+};
+
+export const logoutUser = async () => {
+  try {
+    await request<ApiResponse>('/api/user/logout', { method: 'POST' });
+  } catch (error) {
+    console.error('[Auth] logout failed', error);
+  } finally {
+    setCurrentUser(null);
+  }
+};
+
+export const fetchCurrentUser = async () => {
+  const currentUser = getCurrentUser();
+  const query = currentUser?.id ? `?userId=${currentUser.id}` : '';
+  const data = await request<ApiResponse>(`/api/user/current${query}`);
+  if (!data.success || !data.user) {
+    throw new Error(data.message || '未登录');
+  }
+  setCurrentUser(data.user);
+  return data.user;
+};
+
+export const updateUserProfile = async (payload: Partial<UserInfo>) => {
+  const currentUser = getCurrentUser();
+  const data = await request<ApiResponse>('/api/user/update', {
+    method: 'PUT',
+    data: {
+      ...payload,
+      ...(currentUser?.id ? { userId: String(currentUser.id) } : {})
+    }
+  });
+
+  if (!data.success || !data.user) {
+    throw new Error(data.message || '保存失败');
+  }
+
+  setCurrentUser(data.user);
+  return data.user;
+};
+
+export const fetchRecordings = async () => {
+  return request<RecordingItem[]>('/recordings');
+};
+
+export const renameRecording = async (id: number, name: string) => {
+  return request<ApiResponse>(`/recordings/${id}`, {
+    method: 'PUT',
+    data: { name }
+  });
+};
+
+export const transcribeRecording = async (id: number) => {
+  return request<ApiResponse>(`/recordings/${id}/transcribe`, {
+    method: 'POST'
+  });
+};
+
+export const deleteRecording = async (id: number) => {
+  return request<ApiResponse>(`/recordings/${id}`, {
+    method: 'DELETE'
+  });
+};
+
+export const uploadRecording = async (filePath: string, name: string) => {
+  return new Promise<ApiResponse>((resolve, reject) => {
+    Taro.uploadFile({
+      url: getBackendUrl(),
+      filePath,
+      name: 'audio',
+      formData: { name },
+      success(res) {
+        try {
+          const data = JSON.parse(res.data || '{}') as ApiResponse;
+          if (res.statusCode >= 400 || data.success === false) {
+            reject(new Error(data.message || data.error || '上传失败'));
+            return;
+          }
+          resolve(data);
+        } catch (error) {
+          reject(error);
+        }
+      },
+      fail(error) {
+        reject(error);
+      }
+    });
+  });
+};

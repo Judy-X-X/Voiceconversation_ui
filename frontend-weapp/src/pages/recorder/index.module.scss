@@ -1,0 +1,195 @@
+@use '@/styles/variables.scss' as *;
+
+.page {
+  min-height: 100vh;
+  padding: 24rpx $page-padding 120rpx;
+}
+
+.card {
+  background: $color-bg-card;
+  border-radius: 48rpx;
+  padding: 40rpx 28rpx 36rpx;
+  box-shadow: $shadow-card;
+}
+
+.titleRow {
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+}
+
+.titleIcon {
+  width: 84rpx;
+  height: 84rpx;
+  border-radius: 28rpx;
+  background: #eef4f8;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 40rpx;
+}
+
+.title {
+  font-size: 54rpx;
+  font-weight: $font-weight-bold;
+  color: $color-text-primary;
+}
+
+.subtitle {
+  display: block;
+  margin-top: 20rpx;
+  color: $color-text-tertiary;
+  font-size: 26rpx;
+  line-height: 1.5;
+}
+
+.visualizer {
+  margin-top: 32rpx;
+  padding: 28rpx;
+  border-radius: 40rpx;
+  background: #0b1725;
+  box-shadow: 0 18rpx 36rpx rgba(0, 0, 0, 0.16);
+}
+
+.bars {
+  height: 200rpx;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12rpx;
+  padding: 0 8rpx;
+  border-radius: 28rpx;
+  background: #0f1e2f;
+}
+
+.bar {
+  width: 20rpx;
+  border-radius: 999rpx;
+  background: linear-gradient(180deg, #7ff5b8 0%, #2e7d8f 100%);
+  transition: height $transition-fast;
+}
+
+.statusBar {
+  margin-top: 24rpx;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  color: #8daec4;
+  font-size: 24rpx;
+}
+
+.statusText {
+  display: flex;
+  align-items: center;
+}
+
+.led {
+  width: 12rpx;
+  height: 12rpx;
+  margin-right: 12rpx;
+  border-radius: 999rpx;
+  background: #3a4b5c;
+}
+
+.ledActive {
+  background: #5eff7c;
+  box-shadow: 0 0 12rpx #5eff7c;
+}
+
+.micWrap {
+  display: flex;
+  justify-content: center;
+  margin: 48rpx 0 36rpx;
+}
+
+.micButton {
+  @include button-reset;
+  width: 184rpx;
+  min-width: 184rpx;
+  height: 184rpx;
+  border-radius: 999rpx;
+  border: none;
+  background: #2e7d8f;
+  color: $color-text-white;
+  font-size: 80rpx;
+  box-shadow: 0 28rpx 56rpx rgba(46, 125, 143, 0.32);
+}
+
+.micButtonRecording {
+  background: #ff5a4f;
+}
+
+.actions {
+  text-align: center;
+}
+
+.nameInput {
+  width: 100%;
+  max-width: 640rpx;
+  height: 80rpx;
+  margin-bottom: 16rpx;
+  padding: 0 24rpx;
+  border: 1px solid $color-border;
+  border-radius: 20rpx;
+  background: #fff;
+  font-size: $font-size-sm;
+  text-align: center;
+}
+
+.uploadButton,
+.configButton {
+  @include button-reset;
+  width: 100%;
+  height: $button-height-md;
+  border: none;
+  border-radius: $radius-button;
+  color: $color-text-white;
+  font-size: $font-size-md;
+  font-weight: $font-weight-semibold;
+}
+
+.uploadButton {
+  margin-top: 8rpx;
+  background: #1f6c7c;
+  max-width: 640rpx;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.logBox {
+  margin-top: 24rpx;
+  padding: 24rpx;
+  border-radius: 28rpx;
+  background: #edf2f9;
+  color: #3a4b5c;
+  font-size: 24rpx;
+}
+
+.configCard {
+  margin-top: 24rpx;
+  padding: 24rpx;
+  border-radius: 24rpx;
+  background: #eef4f8;
+}
+
+.configLabel {
+  display: block;
+  color: #5a6b7c;
+  font-size: 24rpx;
+}
+
+.configInput {
+  width: 100%;
+  height: 80rpx;
+  margin-top: 12rpx;
+  padding: 0 24rpx;
+  border: 1px solid $color-border;
+  border-radius: 20rpx;
+  background: #fff;
+  font-size: $font-size-sm;
+}
+
+.configButton {
+  margin-top: 12rpx;
+  background: #2e7d8f;
+}

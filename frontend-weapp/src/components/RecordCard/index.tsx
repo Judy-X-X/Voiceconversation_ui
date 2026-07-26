@@ -1,0 +1,108 @@
+import React, { useMemo, useState } from 'react';
+import { Button, Input, Text, View } from '@tarojs/components';
+import classNames from 'classnames';
+import dayjs from 'dayjs';
+import type { RecordingItem } from '@/types/recording';
+import styles from './index.module.scss';
+
+interface RecordCardProps {
+  item: RecordingItem;
+  playingId?: number | null;
+  transcribingId?: number | null;
+  deletingId?: number | null;
+  onPlay: (item: RecordingItem) => void;
+  onRename: (item: RecordingItem, name: string) => Promise<void> | void;
+  onTranscribe: (item: RecordingItem) => Promise<void> | void;
+  onDelete: (item: RecordingItem) => Promise<void> | void;
+}
+
+const RecordCard: React.FC<RecordCardProps> = ({
+  item,
+  playingId,
+  transcribingId,
+  deletingId,
+  onPlay,
+  onRename,
+  onTranscribe,
+  onDelete
+}) => {
+  const [editing, setEditing] = useState(false);
+  const [draftName, setDraftName] = useState(item.name || `Recording #${item.id}`);
+
+  const metaText = useMemo(() => {
+    const createdAt = item.createdAt || item.created_at || '';
+    const dateText = createdAt ? dayjs(createdAt).format('YYYY/MM/DD HH:mm:ss') : '未知时间';
+    const sizeText = `${(item.size / 1024).toFixed(1)} KB`;
+    return `${dateText} · ${sizeText}`;
+  }, [item.createdAt, item.created_at, item.size]);
+
+  const handleSave = async () => {
+    if (!draftName.trim()) {
+      return;
+    }
+    await onRename(item, draftName.trim());
+    setEditing(false);
+  };
+
+  return (
+    <View className={styles.card}>
+      <View className={styles.info}>
+        {!editing ? (
+          <View className={styles.titleRow}>
+            <Text className={styles.title}>{item.name || `Recording #${item.id}`}</Text>
+            <Button className={styles.inlineAction} onClick={() => setEditing(true)}>
+              ✎
+            </Button>
+          </View>
+        ) : (
+          <View className={styles.editRow}>
+            <Input
+              className={styles.input}
+              type='text'
+              value={draftName}
+              onInput={(event) => setDraftName(event.detail.value)}
+            />
+            <Button className={classNames(styles.miniButton, styles.primaryButton)} onClick={handleSave}>
+              保存
+            </Button>
+            <Button className={styles.miniButton} onClick={() => setEditing(false)}>
+              取消
+            </Button>
+          </View>
+        )}
+
+        <Text className={styles.meta}>{metaText}</Text>
+
+        {item.content ? (
+          <View className={styles.contentBox}>
+            <Text className={styles.contentLabel}>📝</Text>
+            <Text className={styles.contentText}>{item.content}</Text>
+          </View>
+        ) : null}
+
+        <View className={styles.actionRow}>
+          <Button
+            className={classNames(styles.miniButton, styles.actionButton, styles.primaryButton)}
+            onClick={() => onTranscribe(item)}
+            disabled={transcribingId === item.id || deletingId === item.id}
+          >
+            {transcribingId === item.id ? '翻译中...' : item.content ? '重新翻译' : '🔄 转文字'}
+          </Button>
+          <Button
+            className={classNames(styles.miniButton, styles.actionButton, styles.dangerButton)}
+            onClick={() => onDelete(item)}
+            disabled={deletingId === item.id || transcribingId === item.id}
+          >
+            {deletingId === item.id ? '删除中...' : '删除录音'}
+          </Button>
+        </View>
+      </View>
+
+      <Button className={styles.playButton} onClick={() => onPlay(item)}>
+        {playingId === item.id ? '⏸' : '▶'}
+      </Button>
+    </View>
+  );
+};
+
+export default RecordCard;
