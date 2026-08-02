@@ -1444,7 +1444,7 @@ onMounted(() => {
               </div>
             </div>
 
-            <div class="account-row">
+            <div v-if="currentUser?.role !== '管理员'" class="account-row">
               <div class="account-label">站内消息</div>
               <div class="account-value">查看管理员通知</div>
               <div class="account-actions">

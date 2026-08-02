@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Button, Input, Text, View } from '@tarojs/components';
 import Taro from '@tarojs/taro';
 import classNames from 'classnames';
-import { getBackendUrl, setBackendUrl } from '@/utils/storage';
+import { getBackendUrl } from '@/utils/storage';
 import styles from './index.module.scss';
 
 const DEFAULT_BARS = [18, 26, 22, 34, 28, 42, 24, 32, 20, 36, 26, 30];
@@ -14,7 +14,6 @@ const RecorderPage: React.FC = () => {
   const tempPathRef = useRef('');
   const uploadTaskRef = useRef<Taro.UploadTask | null>(null);
 
-  const [backendUrl, setBackendUrlState] = useState(getBackendUrl());
   const [isRecording, setIsRecording] = useState(false);
   const [recordingTime, setRecordingTime] = useState(0);
   const [recordingName, setRecordingName] = useState('');
@@ -141,7 +140,7 @@ const RecorderPage: React.FC = () => {
       setLogText('⏳ 正在上传...');
       const result = await new Promise<{ id?: number }>((resolve, reject) => {
         const task = Taro.uploadFile({
-          url: backendUrl.trim() || getBackendUrl(),
+          url: getBackendUrl(),
           filePath: tempPathRef.current,
           name: 'audio',
           formData: { name: recordingName.trim() || `录音 ${new Date().toLocaleString()}` },
@@ -196,13 +195,6 @@ const RecorderPage: React.FC = () => {
     tempPathRef.current = '';
     setRecordingName('');
     setLogText('✅ 已取消上传');
-  };
-
-  const handleSaveBackendUrl = () => {
-    setBackendUrl(backendUrl.trim() || getBackendUrl());
-    setBackendUrlState(backendUrl.trim() || getBackendUrl());
-    setLogText(`📡 后端地址设置为: ${backendUrl.trim() || getBackendUrl()}`);
-    Taro.showToast({ title: '地址已更新', icon: 'success' });
   };
 
   return (
@@ -263,20 +255,6 @@ const RecorderPage: React.FC = () => {
 
         <View className={styles.logBox}>
           <Text>{logText}</Text>
-        </View>
-
-        <View className={styles.configCard}>
-          <Text className={styles.configLabel}>后端地址（同一 Wi-Fi 下可改成局域网地址）</Text>
-          <Input
-            className={styles.configInput}
-            type='text'
-            value={backendUrl}
-            placeholder='http://IP:3000/upload'
-            onInput={(event) => setBackendUrlState(event.detail.value)}
-          />
-          <Button className={styles.configButton} onClick={handleSaveBackendUrl}>
-            更新地址
-          </Button>
         </View>
       </View>
     </View>
