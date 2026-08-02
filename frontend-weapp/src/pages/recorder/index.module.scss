@@ -156,6 +156,22 @@
   margin-right: auto;
 }
 
+.cancelButton {
+  @include button-reset;
+  width: 100%;
+  height: $button-height-md;
+  margin-top: 12rpx;
+  border: none;
+  border-radius: $radius-button;
+  background: #eef4f8;
+  color: #5a6b7c;
+  font-size: $font-size-md;
+  font-weight: $font-weight-semibold;
+  max-width: 640rpx;
+  margin-left: auto;
+  margin-right: auto;
+}
+
 .logBox {
   margin-top: 24rpx;
   padding: 24rpx;

@@ -234,6 +234,16 @@ const MinePage: React.FC = () => {
             </Button>
           </View>
         </View>
+
+        <View className={styles.row}>
+          <Text className={styles.label}>站内消息</Text>
+          <Text className={styles.value}>查看管理员通知</Text>
+          <View className={styles.actions}>
+            <Button className={styles.linkBtn} onClick={() => Taro.navigateTo({ url: '/pages/notifications/index' })}>
+              查看
+            </Button>
+          </View>
+        </View>
       </View>
 
       <Button className={styles.logoutBtn} onClick={handleLogout}>

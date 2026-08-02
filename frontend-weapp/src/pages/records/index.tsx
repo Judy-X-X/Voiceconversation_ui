@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Text, View } from '@tarojs/components';
 import Taro, { useDidShow, usePullDownRefresh } from '@tarojs/taro';
 import RecordCard from '@/components/RecordCard';
-import { deleteRecording, fetchRecordings, renameRecording, transcribeRecording } from '@/services/api';
+import { deleteRecording, fetchRecordings, renameRecording, transcribeRecording, updateRecordingContent } from '@/services/api';
 import type { RecordingItem } from '@/types/recording';
 import { getBaseUrl } from '@/utils/storage';
 import styles from './index.module.scss';
@@ -180,6 +180,20 @@ const RecordsPage: React.FC = () => {
     }
   };
 
+  const handleCorrect = async (item: RecordingItem, content: string) => {
+    try {
+      await updateRecordingContent(item.id, content);
+      setRecordings((prev) => prev.map((record) => (record.id === item.id ? { ...record, content } : record)));
+      Taro.showToast({ title: '已保存', icon: 'success' });
+    } catch (error) {
+      console.error('[Records] correct failed', error);
+      Taro.showToast({
+        title: error instanceof Error ? error.message : '保存失败',
+        icon: 'none'
+      });
+    }
+  };
+
   return (
     <View className={styles.page}>
       <Text className={styles.title}>🗂️ 录音记录</Text>
@@ -201,6 +215,7 @@ const RecordsPage: React.FC = () => {
               onRename={handleRename}
               onTranscribe={handleTranscribe}
               onDelete={handleDelete}
+              onCorrect={handleCorrect}
             />
           ))}
         </View>

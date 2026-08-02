@@ -6,11 +6,17 @@ const USER_KEY = 'voice_current_user';
 
 const LEGACY_LOCALHOST_URL = 'http://localhost:3000/upload';
 const LEGACY_VMWARE_URL = 'http://192.168.30.1:3000/upload';
-export const DEFAULT_BACKEND_URL = 'http://10.202.2.32:3000/upload';
+const LEGACY_WIFI_URL = 'http://10.202.2.32:3000/upload';
+export const DEFAULT_BACKEND_URL = 'http://10.202.21.62:3000/upload';
 
 export const getBackendUrl = () => {
   const storedUrl = Taro.getStorageSync(BACKEND_URL_KEY);
-  if (!storedUrl || storedUrl === LEGACY_LOCALHOST_URL || storedUrl === LEGACY_VMWARE_URL) {
+  if (
+    !storedUrl ||
+    storedUrl === LEGACY_LOCALHOST_URL ||
+    storedUrl === LEGACY_VMWARE_URL ||
+    storedUrl === LEGACY_WIFI_URL
+  ) {
     Taro.setStorageSync(BACKEND_URL_KEY, DEFAULT_BACKEND_URL);
     return DEFAULT_BACKEND_URL;
   }

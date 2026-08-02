@@ -62,6 +62,18 @@
   box-shadow: 0 8rpx 24rpx rgba(46, 125, 143, 0.28);
 }
 
+.switchMode {
+  @include button-reset;
+  width: 100%;
+  height: $button-height-md;
+  margin-top: 16rpx;
+  border: none;
+  border-radius: $radius-button;
+  background: transparent;
+  color: #2e7d8f;
+  font-size: $font-size-sm;
+}
+
 .hint {
   display: block;
   margin-top: 24rpx;

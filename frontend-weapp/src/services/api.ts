@@ -11,6 +11,7 @@ interface ApiResponse<T = unknown> {
   user?: UserInfo;
   text?: string;
   data?: T;
+  total?: number;
 }
 
 const request = async <T = unknown>(
@@ -38,10 +39,10 @@ const request = async <T = unknown>(
   return data;
 };
 
-export const loginUser = async (username: string, password: string) => {
+export const loginUser = async (phone: string, password: string) => {
   const data = await request<ApiResponse>('/api/user/login', {
     method: 'POST',
-    data: { username, password }
+    data: { phone, password }
   });
 
   if (!data.success || !data.user) {
@@ -49,6 +50,19 @@ export const loginUser = async (username: string, password: string) => {
   }
 
   setCurrentUser(data.user);
+  return data.user;
+};
+
+export const registerUser = async (phone: string, password: string) => {
+  const data = await request<ApiResponse>('/api/user/register', {
+    method: 'POST',
+    data: { phone, password }
+  });
+
+  if (!data.success || !data.user) {
+    throw new Error(data.message || '注册失败');
+  }
+
   return data.user;
 };
 
@@ -114,6 +128,13 @@ export const deleteRecording = async (id: number) => {
   });
 };
 
+export const updateRecordingContent = async (id: number, content: string) => {
+  return request<ApiResponse>(`/recordings/${id}/content`, {
+    method: 'PUT',
+    data: { content }
+  });
+};
+
 export const uploadRecording = async (filePath: string, name: string) => {
   return new Promise<ApiResponse>((resolve, reject) => {
     Taro.uploadFile({
@@ -138,4 +159,22 @@ export const uploadRecording = async (filePath: string, name: string) => {
       }
     });
   });
+};
+
+export const fetchNotifications = async (page = 1, pageSize = 20) => {
+  const data = await request<ApiResponse>(`/api/user/notifications?page=${page}&pageSize=${pageSize}`);
+  if (!data.success) {
+    throw new Error(data.message || '加载失败');
+  }
+  return Array.isArray(data.data) ? (data.data as unknown[]) : [];
+};
+
+export const markNotificationRead = async (id: number) => {
+  const data = await request<ApiResponse>(`/api/user/notifications/${id}/read`, {
+    method: 'PUT'
+  });
+  if (!data.success) {
+    throw new Error(data.message || '操作失败');
+  }
+  return data;
 };

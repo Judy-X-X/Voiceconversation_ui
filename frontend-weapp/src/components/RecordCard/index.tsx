@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { Button, Input, Text, View } from '@tarojs/components';
+import { Button, Input, Text, Textarea, View } from '@tarojs/components';
 import classNames from 'classnames';
 import dayjs from 'dayjs';
 import type { RecordingItem } from '@/types/recording';
@@ -14,6 +14,7 @@ interface RecordCardProps {
   onRename: (item: RecordingItem, name: string) => Promise<void> | void;
   onTranscribe: (item: RecordingItem) => Promise<void> | void;
   onDelete: (item: RecordingItem) => Promise<void> | void;
+  onCorrect: (item: RecordingItem, content: string) => Promise<void> | void;
 }
 
 const RecordCard: React.FC<RecordCardProps> = ({
@@ -24,10 +25,13 @@ const RecordCard: React.FC<RecordCardProps> = ({
   onPlay,
   onRename,
   onTranscribe,
-  onDelete
+  onDelete,
+  onCorrect
 }) => {
   const [editing, setEditing] = useState(false);
   const [draftName, setDraftName] = useState(item.name || `Recording #${item.id}`);
+  const [correcting, setCorrecting] = useState(false);
+  const [draftContent, setDraftContent] = useState(item.content || '');
 
   const metaText = useMemo(() => {
     const createdAt = item.createdAt || item.created_at || '';
@@ -42,6 +46,11 @@ const RecordCard: React.FC<RecordCardProps> = ({
     }
     await onRename(item, draftName.trim());
     setEditing(false);
+  };
+
+  const handleSaveContent = async () => {
+    await onCorrect(item, draftContent);
+    setCorrecting(false);
   };
 
   return (
@@ -74,10 +83,45 @@ const RecordCard: React.FC<RecordCardProps> = ({
         <Text className={styles.meta}>{metaText}</Text>
 
         {item.content ? (
-          <View className={styles.contentBox}>
-            <Text className={styles.contentLabel}>📝</Text>
-            <Text className={styles.contentText}>{item.content}</Text>
-          </View>
+          !correcting ? (
+            <View className={styles.contentBox}>
+              <View className={styles.contentHeader}>
+                <Text className={styles.contentLabel}>📝</Text>
+                <Button
+                  className={classNames(styles.miniButton, styles.inlineContentAction)}
+                  disabled={transcribingId === item.id || deletingId === item.id}
+                  onClick={() => {
+                    setDraftContent(item.content || '');
+                    setCorrecting(true);
+                  }}
+                >
+                  纠错
+                </Button>
+              </View>
+              <Text className={styles.contentText}>{item.content}</Text>
+            </View>
+          ) : (
+            <View className={styles.correctBox}>
+              <Textarea
+                className={styles.textarea}
+                value={draftContent}
+                maxlength={10000}
+                autoHeight
+                onInput={(event) => setDraftContent(event.detail.value)}
+              />
+              <View className={styles.correctActions}>
+                <Button className={classNames(styles.miniButton, styles.actionButton)} onClick={() => setCorrecting(false)}>
+                  取消
+                </Button>
+                <Button
+                  className={classNames(styles.miniButton, styles.actionButton, styles.primaryButton)}
+                  onClick={handleSaveContent}
+                >
+                  保存
+                </Button>
+              </View>
+            </View>
+          )
         ) : null}
 
         <View className={styles.actionRow}>

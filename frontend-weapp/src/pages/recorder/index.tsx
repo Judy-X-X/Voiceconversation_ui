@@ -2,7 +2,6 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Button, Input, Text, View } from '@tarojs/components';
 import Taro from '@tarojs/taro';
 import classNames from 'classnames';
-import { uploadRecording } from '@/services/api';
 import { getBackendUrl, setBackendUrl } from '@/utils/storage';
 import styles from './index.module.scss';
 
@@ -13,6 +12,7 @@ const RecorderPage: React.FC = () => {
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const waveTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const tempPathRef = useRef('');
+  const uploadTaskRef = useRef<Taro.UploadTask | null>(null);
 
   const [backendUrl, setBackendUrlState] = useState(getBackendUrl());
   const [isRecording, setIsRecording] = useState(false);
@@ -48,6 +48,14 @@ const RecorderPage: React.FC = () => {
     return () => {
       stopWave();
       stopTimer();
+      if (uploadTaskRef.current) {
+        try {
+          uploadTaskRef.current.abort();
+        } catch (error) {
+          console.error('[Recorder] abort upload failed', error);
+        }
+        uploadTaskRef.current = null;
+      }
     };
   }, []);
 
@@ -131,10 +139,32 @@ const RecorderPage: React.FC = () => {
     try {
       setUploading(true);
       setLogText('⏳ 正在上传...');
-      const result = await uploadRecording(
-        tempPathRef.current,
-        recordingName.trim() || `录音 ${new Date().toLocaleString()}`
-      );
+      const result = await new Promise<{ id?: number }>((resolve, reject) => {
+        const task = Taro.uploadFile({
+          url: backendUrl.trim() || getBackendUrl(),
+          filePath: tempPathRef.current,
+          name: 'audio',
+          formData: { name: recordingName.trim() || `录音 ${new Date().toLocaleString()}` },
+          success(res) {
+            uploadTaskRef.current = null;
+            try {
+              const data = JSON.parse(res.data || '{}') as { success?: boolean; id?: number; message?: string; error?: string };
+              if (res.statusCode >= 400 || data.success === false) {
+                reject(new Error(data.message || data.error || '上传失败'));
+                return;
+              }
+              resolve({ id: data.id });
+            } catch (error) {
+              reject(error);
+            }
+          },
+          fail(error) {
+            uploadTaskRef.current = null;
+            reject(error);
+          }
+        });
+        uploadTaskRef.current = task;
+      });
       setLogText(`✅ 上传成功! ID: ${result.id || '已完成'}`);
       setShowUpload(false);
       tempPathRef.current = '';
@@ -150,6 +180,22 @@ const RecorderPage: React.FC = () => {
     } finally {
       setUploading(false);
     }
+  };
+
+  const handleCancelUpload = () => {
+    if (uploadTaskRef.current) {
+      try {
+        uploadTaskRef.current.abort();
+      } catch (error) {
+        console.error('[Recorder] abort upload failed', error);
+      }
+      uploadTaskRef.current = null;
+    }
+    setUploading(false);
+    setShowUpload(false);
+    tempPathRef.current = '';
+    setRecordingName('');
+    setLogText('✅ 已取消上传');
   };
 
   const handleSaveBackendUrl = () => {
@@ -206,6 +252,11 @@ const RecorderPage: React.FC = () => {
           {showUpload && (
             <Button className={styles.uploadButton} loading={uploading} onClick={handleUpload}>
               💾 上传录音
+            </Button>
+          )}
+          {showUpload && (
+            <Button className={styles.cancelButton} disabled={false} onClick={handleCancelUpload}>
+              取消上传
             </Button>
           )}
         </View>
