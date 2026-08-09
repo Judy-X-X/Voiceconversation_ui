@@ -82,6 +82,16 @@ const RecordCard: React.FC<RecordCardProps> = ({
 
         <Text className={styles.meta}>{metaText}</Text>
 
+        {Array.isArray(item.tag_list) && item.tag_list.length > 0 ? (
+          <View className={styles.tagWrap}>
+            {item.tag_list.map((tg) => (
+              <View key={tg} className={styles.tagBadge}>
+                <Text className={styles.tagText}>🏷️ {tg}</Text>
+              </View>
+            ))}
+          </View>
+        ) : null}
+
         {item.content ? (
           !correcting ? (
             <View className={styles.contentBox}>

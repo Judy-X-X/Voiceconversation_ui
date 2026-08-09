@@ -3,6 +3,7 @@ import { Button, Input, Text, View } from '@tarojs/components';
 import Taro from '@tarojs/taro';
 import classNames from 'classnames';
 import { getBackendUrl } from '@/utils/storage';
+import { createVoiceTag, fetchVoiceTags, type VoiceTagItem } from '@/services/api';
 import styles from './index.module.scss';
 
 const DEFAULT_BARS = [18, 26, 22, 34, 28, 42, 24, 32, 20, 36, 26, 30];
@@ -21,6 +22,10 @@ const RecorderPage: React.FC = () => {
   const [logText, setLogText] = useState('✨ 系统就绪，点击底部麦克风开始录音');
   const [bars, setBars] = useState(DEFAULT_BARS);
   const [uploading, setUploading] = useState(false);
+  const [tagOptions, setTagOptions] = useState<VoiceTagItem[]>([]);
+  const [selectedTagIds, setSelectedTagIds] = useState<number[]>([]);
+  const [newTagName, setNewTagName] = useState('');
+  const [loadingTags, setLoadingTags] = useState(false);
 
   useEffect(() => {
     const recorder = recorderRef.current;
@@ -31,9 +36,12 @@ const RecorderPage: React.FC = () => {
       setIsRecording(false);
       setShowUpload(true);
       setRecordingName(`录音 ${new Date().toLocaleString()}`);
+      setSelectedTagIds([]);
+      setNewTagName('');
       setLogText('⏸️ 录音结束，已生成音频文件');
       stopWave();
       stopTimer();
+      loadTags();
     });
 
     recorder.onError((error) => {
@@ -57,6 +65,46 @@ const RecorderPage: React.FC = () => {
       }
     };
   }, []);
+
+  const loadTags = async () => {
+    try {
+      setLoadingTags(true);
+      const tags = await fetchVoiceTags();
+      setTagOptions(Array.isArray(tags) ? tags : []);
+    } catch (error) {
+      console.error('[Recorder] load tags failed', error);
+      setTagOptions([]);
+    } finally {
+      setLoadingTags(false);
+    }
+  };
+
+  const toggleTag = (tagId: number) => {
+    if (!tagId) return;
+    setSelectedTagIds((prev) => (prev.includes(tagId) ? prev.filter((id) => id !== tagId) : [...prev, tagId]));
+  };
+
+  const handleAddTag = async () => {
+    const trimmed = newTagName.trim();
+    if (!trimmed) {
+      Taro.showToast({ title: '请输入标签名', icon: 'none' });
+      return;
+    }
+    try {
+      const created = await createVoiceTag(trimmed);
+      setNewTagName('');
+      if (created?.id) {
+        setTagOptions((prev) => {
+          const exists = prev.some((t) => t.id === created.id);
+          return exists ? prev : [...prev, created];
+        });
+        setSelectedTagIds((prev) => (prev.includes(created.id) ? prev : [...prev, created.id]));
+      }
+    } catch (error) {
+      console.error('[Recorder] create tag failed', error);
+      Taro.showToast({ title: error instanceof Error ? error.message : '新增标签失败', icon: 'none' });
+    }
+  };
 
   const timeText = useMemo(() => {
     const mins = Math.floor(recordingTime / 60);
@@ -139,11 +187,15 @@ const RecorderPage: React.FC = () => {
       setUploading(true);
       setLogText('⏳ 正在上传...');
       const result = await new Promise<{ id?: number }>((resolve, reject) => {
+        const formData: Record<string, string> = { name: recordingName.trim() || `录音 ${new Date().toLocaleString()}` };
+        if (selectedTagIds.length > 0) {
+          formData.tag_ids = selectedTagIds.join(',');
+        }
         const task = Taro.uploadFile({
           url: getBackendUrl(),
           filePath: tempPathRef.current,
           name: 'audio',
-          formData: { name: recordingName.trim() || `录音 ${new Date().toLocaleString()}` },
+          formData,
           success(res) {
             uploadTaskRef.current = null;
             try {
@@ -168,6 +220,8 @@ const RecorderPage: React.FC = () => {
       setShowUpload(false);
       tempPathRef.current = '';
       setRecordingName('');
+      setSelectedTagIds([]);
+      setNewTagName('');
       Taro.showToast({ title: '上传成功', icon: 'success' });
     } catch (error) {
       console.error('[Recorder] upload failed', error);
@@ -194,6 +248,8 @@ const RecorderPage: React.FC = () => {
     setShowUpload(false);
     tempPathRef.current = '';
     setRecordingName('');
+    setSelectedTagIds([]);
+    setNewTagName('');
     setLogText('✅ 已取消上传');
   };
 
@@ -240,6 +296,40 @@ const RecorderPage: React.FC = () => {
               placeholder='录音名称'
               onInput={(event) => setRecordingName(event.detail.value)}
             />
+          )}
+          {showUpload && (
+            <View className={styles.tagSection}>
+              <Text className={styles.tagTitle}>选择标签</Text>
+              {loadingTags ? (
+                <View className={styles.tagHint}>加载中...</View>
+              ) : tagOptions.length === 0 ? (
+                <View className={styles.tagHint}>暂无标签，可直接新增</View>
+              ) : (
+                <View className={styles.tagList}>
+                  {tagOptions.map((tag) => (
+                    <View
+                      key={tag.id}
+                      className={classNames(styles.tagChip, selectedTagIds.includes(tag.id) && styles.tagChipActive)}
+                      onClick={() => toggleTag(tag.id)}
+                    >
+                      <Text className={styles.tagChipText}>{tag.name}</Text>
+                    </View>
+                  ))}
+                </View>
+              )}
+              <View className={styles.tagAddRow}>
+                <Input
+                  className={styles.tagInput}
+                  type='text'
+                  value={newTagName}
+                  placeholder='没有想要的？新增标签'
+                  onInput={(event) => setNewTagName(event.detail.value)}
+                />
+                <Button className={styles.tagAddButton} onClick={handleAddTag}>
+                  新增
+                </Button>
+              </View>
+            </View>
           )}
           {showUpload && (
             <Button className={styles.uploadButton} loading={uploading} onClick={handleUpload}>

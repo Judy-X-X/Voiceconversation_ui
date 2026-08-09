@@ -14,6 +14,11 @@ interface ApiResponse<T = unknown> {
   total?: number;
 }
 
+export interface VoiceTagItem {
+  id: number;
+  name: string;
+}
+
 const request = async <T = unknown>(
   path: string,
   options: Partial<Parameters<typeof Taro.request>[0]> = {}
@@ -109,6 +114,29 @@ export const fetchRecordings = async () => {
   return request<RecordingItem[]>('/recordings');
 };
 
+export const fetchVoiceTags = async () => {
+  const data = await request<ApiResponse>('/tags');
+  if (!data.success) {
+    throw new Error(data.message || '加载标签失败');
+  }
+  return Array.isArray(data.data) ? (data.data as VoiceTagItem[]) : [];
+};
+
+export const createVoiceTag = async (name: string) => {
+  const trimmed = (name || '').trim();
+  if (!trimmed) {
+    throw new Error('标签不能为空');
+  }
+  const data = await request<ApiResponse>('/tags', {
+    method: 'POST',
+    data: { name: trimmed }
+  });
+  if (!data.success) {
+    throw new Error(data.message || '新增标签失败');
+  }
+  return data.data as VoiceTagItem;
+};
+
 export const renameRecording = async (id: number, name: string) => {
   return request<ApiResponse>(`/recordings/${id}`, {
     method: 'PUT',
@@ -135,13 +163,13 @@ export const updateRecordingContent = async (id: number, content: string) => {
   });
 };
 
-export const uploadRecording = async (filePath: string, name: string) => {
+export const uploadRecording = async (filePath: string, name: string, tagIds: number[] = []) => {
   return new Promise<ApiResponse>((resolve, reject) => {
     Taro.uploadFile({
       url: getBackendUrl(),
       filePath,
       name: 'audio',
-      formData: { name },
+      formData: { name, ...(tagIds.length > 0 ? { tag_ids: tagIds.join(',') } : {}) },
       success(res) {
         try {
           const data = JSON.parse(res.data || '{}') as ApiResponse;

@@ -74,6 +74,35 @@ const adminTagAddValue = ref('')
 const adminTagRenameDialogVisible = ref(false)
 const adminTagRenameFrom = ref('')
 const adminTagRenameTo = ref('')
+
+const adminOpsLogs = ref([])
+const adminOpsLogsTotal = ref(0)
+const adminOpsLogsPage = ref(1)
+const adminOpsLogsPageSize = ref(10)
+const adminOpsLogsStartTime = ref('')
+const adminOpsLogsEndTime = ref('')
+const adminOpsLogsOpType = ref('')
+const adminOpsLogsKeyword = ref('')
+const adminOpTypeOptions = ['登录','审核','删除','导出','修改用户状态','发送站内信','下发公告','修改系统配置','系统设置','新增标签','编辑标签','删除标签','录音打标签','其他']
+
+const adminSystemConfig = ref({})
+const adminBroadcastTitle = ref('')
+const adminBroadcastContent = ref('')
+const adminBroadcastPersistent = ref(true)
+
+const adminRecordingTagDialogVisible = ref(false)
+const adminRecordingTagRow = ref(null)
+const adminRecordingTagSelected = ref([])
+
+const userTagList = ref([])
+const uploadTagSelected = ref([])
+const uploadTagAddValue = ref('')
+
+const userRecordingTagDialogVisible = ref(false)
+const userRecordingTagRow = ref(null)
+const userRecordingTagSelected = ref([])
+const userRecordingTagAddValue = ref('')
+
 const roleOptions = ['普通用户', '管理员']
 const avatarOptions = [
   { value: 'glasses', label: '👓' },
@@ -161,6 +190,8 @@ const login = async () => {
   }
 
   try {
+    const url = `${getBaseUrl()}/api/user/login`
+    appendLog(`🔑 登录请求: POST ${url}  账号: ${username.value.trim()}`)
     const res = await apiFetch('/api/user/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -169,9 +200,21 @@ const login = async () => {
         password: password.value
       })
     })
-    const data = await res.json()
+    appendLog(`🔑 登录响应状态: ${res.status} ${res.statusText}`)
+    let data = null
+    try {
+      data = await res.json()
+      appendLog(`🔑 登录响应体: ${JSON.stringify(data).slice(0, 300)}`)
+    } catch (parseErr) {
+      const text = await res.text().catch(() => '')
+      appendLog(`🔑 登录响应非 JSON: ${text.slice(0, 300)}`)
+      throw new Error(`后端返回非 JSON 响应 (HTTP ${res.status})，请确认 Spring Boot 后端已启动且地址正确 (${getBaseUrl()})`)
+    }
     if (!res.ok || !data.success) {
-      throw new Error(data.message || '登录失败')
+      throw new Error((data && data.message) || `后端拒绝 (HTTP ${res.status})`)
+    }
+    if (!data.user) {
+      throw new Error('后端未返回用户信息')
     }
 
     currentUser.value = normalizeUser(data.user)
@@ -182,7 +225,12 @@ const login = async () => {
       loginAnimating.value = false
     }, 300)
   } catch (e) {
-    alert('登录失败: ' + e.message)
+    appendLog(`🔴 登录失败: ${e.message}`)
+    let hint = e.message
+    if (hint && (hint.includes('Failed to fetch') || hint.includes('network') || hint.includes('Network'))) {
+      hint = `无法连接后端 (${getBaseUrl()})，请确认 Spring Boot 已启动、端口正确、CORS 已放行。${hint}`
+    }
+    alert('登录失败: ' + hint)
   }
 }
 
@@ -294,6 +342,8 @@ const showAdmin = async () => {
   adminUsersPage.value = 1
   adminSelectedRecordingIds.value = []
   await loadAdminTags()
+  adminSystemConfig.value = {}
+  try { await loadAdminSystemConfig() } catch (e) {}
   await loadAdminRecordings(true)
 }
 
@@ -327,6 +377,130 @@ const loadRecordings = async () => {
     console.error(e)
     recordings.value = []
     appendLog('❌ 加载失败: ' + e.message)
+  }
+}
+
+const loadUserTags = async () => {
+  const res = await apiFetch('/tags')
+  const data = await res.json()
+  if (!res.ok || !data.success) {
+    throw new Error(data.message || '加载标签失败')
+  }
+  userTagList.value = Array.isArray(data.data) ? data.data : []
+}
+
+const createUserTag = async (name) => {
+  const trimmed = (name || '').trim()
+  if (!trimmed) {
+    throw new Error('标签不能为空')
+  }
+  const res = await apiFetch('/tags', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: trimmed })
+  })
+  const data = await res.json()
+  if (!res.ok || !data.success) {
+    throw new Error(data.message || '新增失败')
+  }
+  const created = data.data || {}
+  if (created.id && created.name) {
+    const exists = userTagList.value.some(t => t && t.id === created.id)
+    if (!exists) {
+      userTagList.value = [...userTagList.value, created].filter(Boolean)
+    }
+  }
+  return created
+}
+
+const toggleUploadTagOption = (tagId) => {
+  const id = Number(tagId)
+  if (!id) return
+  if (uploadTagSelected.value.includes(id)) {
+    uploadTagSelected.value = uploadTagSelected.value.filter(x => x !== id)
+  } else {
+    uploadTagSelected.value = [...uploadTagSelected.value, id]
+  }
+}
+
+const submitUploadAddTag = async () => {
+  try {
+    const created = await createUserTag(uploadTagAddValue.value)
+    uploadTagAddValue.value = ''
+    if (created && created.id) {
+      const id = Number(created.id)
+      if (id && !uploadTagSelected.value.includes(id)) {
+        uploadTagSelected.value = [...uploadTagSelected.value, id]
+      }
+    }
+  } catch (e) {
+    alert('新增标签失败: ' + (e?.message || '未知错误'))
+  }
+}
+
+const openUserRecordingTagDialog = async (item) => {
+  if (!item?.id) return
+  userRecordingTagRow.value = item
+  userRecordingTagSelected.value = Array.isArray(item.tag_ids) ? item.tag_ids.map(x => Number(x)).filter(Boolean) : []
+  userRecordingTagAddValue.value = ''
+  try {
+    if (userTagList.value.length === 0) {
+      await loadUserTags()
+    }
+  } catch (e) {
+  }
+  userRecordingTagDialogVisible.value = true
+}
+
+const closeUserRecordingTagDialog = () => {
+  userRecordingTagDialogVisible.value = false
+  userRecordingTagRow.value = null
+  userRecordingTagSelected.value = []
+  userRecordingTagAddValue.value = ''
+}
+
+const toggleUserRecordingTagOption = (tagId) => {
+  const id = Number(tagId)
+  if (!id) return
+  if (userRecordingTagSelected.value.includes(id)) {
+    userRecordingTagSelected.value = userRecordingTagSelected.value.filter(x => x !== id)
+  } else {
+    userRecordingTagSelected.value = [...userRecordingTagSelected.value, id]
+  }
+}
+
+const submitUserRecordingTagAdd = async () => {
+  try {
+    const created = await createUserTag(userRecordingTagAddValue.value)
+    userRecordingTagAddValue.value = ''
+    if (created && created.id) {
+      const id = Number(created.id)
+      if (id && !userRecordingTagSelected.value.includes(id)) {
+        userRecordingTagSelected.value = [...userRecordingTagSelected.value, id]
+      }
+    }
+  } catch (e) {
+    alert('新增标签失败: ' + (e?.message || '未知错误'))
+  }
+}
+
+const submitUserRecordingTagDialog = async () => {
+  const row = userRecordingTagRow.value
+  if (!row?.id) return
+  try {
+    const res = await apiFetch(`/recordings/${row.id}/tags`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tag_ids: userRecordingTagSelected.value })
+    })
+    const data = await res.json()
+    if (!res.ok || !data.success) {
+      throw new Error(data.message || '保存失败')
+    }
+    await loadRecordings()
+    closeUserRecordingTagDialog()
+  } catch (e) {
+    alert('保存失败: ' + (e?.message || '未知错误'))
   }
 }
 
@@ -585,6 +759,126 @@ const deleteAdminTag = async (name) => {
   await loadAdminRecordings(false)
 }
 
+const loadAdminOpsLogs = async (resetPage = false) => {
+  if (resetPage) adminOpsLogsPage.value = 1
+  const params = new URLSearchParams()
+  params.set('page', String(adminOpsLogsPage.value))
+  params.set('pageSize', String(adminOpsLogsPageSize.value))
+  if (adminOpsLogsStartTime.value) params.set('startTime', adminOpsLogsStartTime.value)
+  if (adminOpsLogsEndTime.value) params.set('endTime', adminOpsLogsEndTime.value)
+  if (adminOpsLogsOpType.value) params.set('operationType', adminOpsLogsOpType.value)
+  if (adminOpsLogsKeyword.value) params.set('keyword', adminOpsLogsKeyword.value.trim())
+  const res = await apiFetch(`/api/admin/operation-logs?${params.toString()}`)
+  const data = await res.json()
+  if (!res.ok || !data.success) throw new Error(data.message || '加载操作日志失败')
+  adminOpsLogs.value = Array.isArray(data.data) ? data.data : []
+  adminOpsLogsTotal.value = data.total || 0
+}
+
+const loadAdminSystemConfig = async () => {
+  const res = await apiFetch('/api/admin/config')
+  const data = await res.json()
+  if (!res.ok || !data.success) throw new Error(data.message || '加载系统配置失败')
+  adminSystemConfig.value = data.data && typeof data.data === 'object' ? { ...data.data } : {}
+}
+
+const saveAdminSystemConfig = async () => {
+  const payload = {}
+  const fields = ['asr_beam_size','asr_temperature','asr_confidence_threshold','asr_min_duration_seconds','asr_max_duration_seconds','asr_language','asr_initial_prompt']
+  for (const k of fields) {
+    if (adminSystemConfig.value[k] !== undefined) {
+      payload[k] = String(adminSystemConfig.value[k] ?? '')
+    }
+  }
+  const res = await apiFetch('/api/admin/config', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  })
+  const data = await res.json()
+  if (!res.ok || !data.success) throw new Error(data.message || '保存失败')
+  adminSystemConfig.value = data.data && typeof data.data === 'object' ? { ...data.data } : adminSystemConfig.value
+  alert('保存成功')
+}
+
+const broadcastAnnouncement = async () => {
+  if (!adminBroadcastContent.value.trim()) {
+    alert('请输入公告内容')
+    return
+  }
+  const confirmed = window.confirm('将对所有启用状态的用户下发站内公告，确定继续吗？')
+  if (!confirmed) return
+  const res = await apiFetch('/api/admin/announcement/broadcast', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      title: adminBroadcastTitle.value.trim(),
+      content: adminBroadcastContent.value,
+      persistent: adminBroadcastPersistent.value ? 'true' : 'false'
+    })
+  })
+  const data = await res.json()
+  if (!res.ok || !data.success) throw new Error(data.message || '下发失败')
+  adminBroadcastTitle.value = ''
+  adminBroadcastContent.value = ''
+  alert('下发成功: ' + (data.message || ''))
+}
+
+const openRecordingTagDialog = async (row) => {
+  if (!row?.id) return
+  adminRecordingTagRow.value = row
+  adminRecordingTagSelected.value = Array.isArray(row.tag_ids) ? [...row.tag_ids] : []
+  if (adminTagList.value.length === 0) {
+    try { await loadAdminTags() } catch (e) {}
+  }
+  adminRecordingTagDialogVisible.value = true
+}
+
+const closeRecordingTagDialog = () => {
+  adminRecordingTagDialogVisible.value = false
+  adminRecordingTagRow.value = null
+  adminRecordingTagSelected.value = []
+}
+
+const toggleRecordingTagOption = (tagId) => {
+  const id = Number(tagId)
+  if (!id) return
+  if (adminRecordingTagSelected.value.includes(id)) {
+    adminRecordingTagSelected.value = adminRecordingTagSelected.value.filter(x => x !== id)
+  } else {
+    adminRecordingTagSelected.value = [...adminRecordingTagSelected.value, id]
+  }
+}
+
+const submitRecordingTagDialog = async () => {
+  const row = adminRecordingTagRow.value
+  if (!row?.id) return
+  const res = await apiFetch(`/api/admin/recordings/${row.id}/tags`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ tag_ids: adminRecordingTagSelected.value })
+  })
+  const data = await res.json()
+  if (!res.ok || !data.success) throw new Error(data.message || '保存失败')
+  await loadAdminRecordings(false)
+  closeRecordingTagDialog()
+}
+
+const toggleAdminUserStatus = async (row) => {
+  if (!row?.id) return
+  const next = row.status === '禁用' ? '启用' : '禁用'
+  const confirmed = window.confirm(`确定将用户 #${row.id} 状态改为「${next}」吗？`)
+  if (!confirmed) return
+  const res = await apiFetch(`/api/admin/users/${row.id}/status`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ status: next })
+  })
+  const data = await res.json()
+  if (!res.ok || !data.success) throw new Error(data.message || '操作失败')
+  await loadAdminUsers(false)
+}
+
 const markPending = (targetRef, id) => {
   if (!targetRef.value.includes(id)) {
     targetRef.value = [...targetRef.value, id]
@@ -676,6 +970,9 @@ const toggleRecording = async () => {
         appendLog(`⏸️ 录音结束，大小: ${audioChunks.length} chunks`)
         showUploadConfig.value = true
         recordingName.value = `录音 ${new Date().toLocaleString()}`
+        uploadTagSelected.value = []
+        uploadTagAddValue.value = ''
+        loadUserTags().catch(() => {})
         
         mediaStream.getTracks().forEach(t => t.stop())
         mediaStream = null
@@ -718,6 +1015,9 @@ const uploadRecording = async () => {
   const formData = new FormData()
   formData.append('audio', blob, `rec_${Date.now()}.webm`)
   formData.append('name', recordingName.value.trim() || `录音 ${new Date().toLocaleString()}`)
+  if (uploadTagSelected.value.length > 0) {
+    formData.append('tag_ids', uploadTagSelected.value.join(','))
+  }
 
   appendLog('⏳ 正在上传...')
   uploadingRecording.value = true
@@ -735,6 +1035,8 @@ const uploadRecording = async () => {
     showUploadConfig.value = false
     audioChunks = []
     recordingName.value = ''
+    uploadTagSelected.value = []
+    uploadTagAddValue.value = ''
   } catch (e) {
     if (e?.name === 'AbortError') {
       appendLog('✅ 已取消上传')
@@ -755,6 +1057,8 @@ const cancelUploadRecording = () => {
   showUploadConfig.value = false
   audioChunks = []
   recordingName.value = ''
+  uploadTagSelected.value = []
+  uploadTagAddValue.value = ''
   appendLog('✅ 已取消上传')
 }
 
@@ -1103,6 +1407,20 @@ onMounted(() => {
           <div class="recorder-actions">
             <div id="uploadConfig" :style="{ display: showUploadConfig ? 'block' : 'none', marginBottom: '12px' }">
               <input type="text" v-model="recordingName" placeholder="录音名称" class="url-input recorder-name-input">
+              <div style="margin-top:10px;">
+                <div style="font-size:0.88rem; color:#334155; margin-bottom:6px;">选择标签</div>
+                <div v-if="userTagList.length === 0" style="padding:6px 0; color:#8fa0b0; font-size:0.82rem;">暂无标签，可直接新增</div>
+                <div v-else style="display:flex; flex-wrap:wrap; gap:8px; max-height:160px; overflow:auto; padding:4px 2px;">
+                  <label v-for="t in userTagList" :key="t.id" :style="{ display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '6px 10px', border: '1px solid #dbe4ee', borderRadius: '999px', cursor: 'pointer', background: uploadTagSelected.includes(t.id) ? '#e6f4ff' : 'white' }">
+                    <input type="checkbox" :checked="uploadTagSelected.includes(t.id)" @change="toggleUploadTagOption(t.id)" />
+                    <span style="font-size:0.88rem;">{{ t.name }}</span>
+                  </label>
+                </div>
+                <div style="display:flex; gap:8px; margin-top:10px;">
+                  <input class="dialog-input" style="flex:1; margin:0;" type="text" v-model="uploadTagAddValue" placeholder="没有想要的？新增标签" />
+                  <button class="admin-mini-btn" @click="submitUploadAddTag">新增</button>
+                </div>
+              </div>
             </div>
             <button id="sendBtn" class="login-btn recorder-upload-btn" :style="{ display: showUploadConfig ? 'inline-block' : 'none' }" @click="uploadRecording">
               💾 上传录音
@@ -1144,6 +1462,9 @@ onMounted(() => {
                 </div>
                 <div class="record-meta">{{ new Date(item.created_at).toLocaleString() }} · {{ (item.size / 1024).toFixed(1) }} KB</div>
                 <div class="record-uploader">👤 {{ item.user_nickname || item.user_id }}</div>
+                <div v-if="item.tag_list && item.tag_list.length > 0" style="margin-top:6px; display:flex; flex-wrap:wrap; gap:6px;">
+                  <span v-for="tg in item.tag_list" :key="tg" style="padding:2px 8px; border-radius:999px; background:#e6f4ff; color:#1677ff; font-size:0.78rem;">🏷️ {{ tg }}</span>
+                </div>
                 <div v-if="item.content && item.content.trim() !== ''" style="margin-top:8px; padding:8px; background:#f0f7ff; border-radius:6px; font-size:0.9rem; color:#2e7d8f;">
                   📝 {{ item.content }}
                 </div>
@@ -1154,6 +1475,13 @@ onMounted(() => {
                     @click="transcribeItem(item)"
                   >
                     {{ isTranscribing(item.id) ? '翻译中...' : (item.content && item.content.trim() !== '' ? '重新翻译' : '转文字') }}
+                  </button>
+                  <button
+                    class="record-action-btn record-action-secondary"
+                    :disabled="isDeleting(item.id) || isTranscribing(item.id)"
+                    @click="openUserRecordingTagDialog(item)"
+                  >
+                    标签
                   </button>
                   <button
                     v-if="item.content && item.content.trim() !== ''"
@@ -1190,8 +1518,8 @@ onMounted(() => {
               <button class="admin-nav-item" :class="{ active: adminMenu === 'data' }" @click="adminMenu = 'data'; loadAdminRecordings(true)">数据管理</button>
               <button class="admin-nav-item" :class="{ active: adminMenu === 'users' }" @click="adminMenu = 'users'; loadAdminUsers(true)">用户管理</button>
               <button class="admin-nav-item" :class="{ active: adminMenu === 'tags' }" @click="adminMenu = 'tags'; loadAdminTags()">标签管理</button>
-              <button class="admin-nav-item" :class="{ active: adminMenu === 'ops' }" @click="adminMenu = 'ops'">运营管理</button>
-              <button class="admin-nav-item" :class="{ active: adminMenu === 'settings' }" @click="adminMenu = 'settings'">系统设置</button>
+              <button class="admin-nav-item" :class="{ active: adminMenu === 'ops' }" @click="adminMenu = 'ops'; loadAdminOpsLogs(true)">运营管理</button>
+              <button class="admin-nav-item" :class="{ active: adminMenu === 'settings' }" @click="adminMenu = 'settings'; loadAdminSystemConfig().catch(()=>{})">系统设置</button>
             </div>
 
             <div class="admin-panel">
@@ -1231,8 +1559,9 @@ onMounted(() => {
                         <th>采集用户</th>
                         <th>采集时间</th>
                         <th>文本</th>
+                        <th>标签</th>
                         <th style="width:120px;">语音</th>
-                        <th style="width:260px;">操作</th>
+                        <th style="width:300px;">操作</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -1246,16 +1575,23 @@ onMounted(() => {
                         <td>{{ row.created_at ? new Date(row.created_at).toLocaleString() : '' }}</td>
                         <td>{{ row.content ? String(row.content).slice(0, 24) : '-' }}</td>
                         <td>
+                          <div v-if="row.tag_list && row.tag_list.length > 0" style="display:flex; flex-wrap:wrap; gap:4px; max-width:220px;">
+                            <span v-for="tg in row.tag_list" :key="tg" style="padding:1px 7px; border-radius:999px; background:#e6f4ff; color:#1677ff; font-size:0.75rem;">{{ tg }}</span>
+                          </div>
+                          <span v-else style="color:#94a3b8; font-size:0.8rem;">-</span>
+                        </td>
+                        <td>
                           <button class="admin-mini-btn play-btn" @click="playAudio(`${getBaseUrl()}/recordings/${row.id}/media`, $event.target)">▶</button>
                         </td>
                         <td>
                           <button class="admin-mini-btn" @click="transcribeAdminRecording(row)">转文字</button>
                           <button class="admin-mini-btn" @click="openAdminMessageDialog({ id: row.user_id, nickname: row.user_nickname })">站内信</button>
+                          <button class="admin-mini-btn" @click="openRecordingTagDialog(row)">标签</button>
                           <button class="admin-mini-btn" @click="deleteAdminRecording(row)">删除</button>
                         </td>
                       </tr>
                       <tr v-if="adminRecordings.length === 0">
-                        <td colspan="8" style="text-align:center; padding: 20px; color:#8fa0b0;">暂无数据</td>
+                        <td colspan="9" style="text-align:center; padding: 20px; color:#8fa0b0;">暂无数据</td>
                       </tr>
                     </tbody>
                   </table>
@@ -1303,8 +1639,9 @@ onMounted(() => {
                         <th>昵称</th>
                         <th>手机号</th>
                         <th>角色</th>
+                        <th>状态</th>
                         <th>注册时间</th>
-                        <th style="width:220px;">操作</th>
+                        <th style="width:300px;">操作</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -1313,14 +1650,18 @@ onMounted(() => {
                         <td>{{ row.nickname || '-' }}</td>
                         <td>{{ row.phone || '-' }}</td>
                         <td>{{ row.role || '-' }}</td>
+                        <td>
+                          <span :style="{ padding: '2px 8px', borderRadius: '999px', fontSize: '0.78rem', background: row.status === '禁用' ? '#fef2f2' : '#ecfdf5', color: row.status === '禁用' ? '#b91c1c' : '#047857' }">{{ row.status || '启用' }}</span>
+                        </td>
                         <td>{{ row.created_at ? new Date(row.created_at).toLocaleString() : '' }}</td>
                         <td>
                           <button class="admin-mini-btn" @click="openAdminMessageDialog(row)">发送站内信息</button>
                           <button class="admin-mini-btn" @click="openAdminUserDetail(row)">查看详情</button>
+                          <button class="admin-mini-btn" @click="toggleAdminUserStatus(row)">{{ row.status === '禁用' ? '启用' : '禁用' }}</button>
                         </td>
                       </tr>
                       <tr v-if="adminUsers.length === 0">
-                        <td colspan="6" style="text-align:center; padding: 20px; color:#8fa0b0;">暂无用户</td>
+                        <td colspan="7" style="text-align:center; padding: 20px; color:#8fa0b0;">暂无用户</td>
                       </tr>
                     </tbody>
                   </table>
@@ -1379,14 +1720,102 @@ onMounted(() => {
                 </div>
               </div>
 
-              <div v-else-if="adminMenu === 'ops'" class="admin-empty">
-                <div class="admin-empty-title">运营管理</div>
-                <div class="admin-empty-text">该模块已预留入口，下一步可接入统计报表、用户贡献榜、质量报告等。</div>
+              <div v-if="adminMenu === 'ops'">
+                <div class="admin-toolbar">
+                  <div class="admin-filter">
+                    <div class="admin-field"><div class="admin-label">开始时间</div><input class="admin-input" type="date" v-model="adminOpsLogsStartTime" /></div>
+                    <div class="admin-field"><div class="admin-label">结束时间</div><input class="admin-input" type="date" v-model="adminOpsLogsEndTime" /></div>
+                    <div class="admin-field" style="min-width:160px;">
+                      <div class="admin-label">操作类型</div>
+                      <select class="admin-select" v-model="adminOpsLogsOpType" style="width:100%;">
+                        <option value="">全部</option>
+                        <option v-for="o in adminOpTypeOptions" :key="o" :value="o">{{ o }}</option>
+                      </select>
+                    </div>
+                    <div class="admin-field" style="min-width:220px;"><div class="admin-label">关键词</div><input class="admin-input" type="text" v-model="adminOpsLogsKeyword" placeholder="账号/描述/对象/IP" /></div>
+                  </div>
+                  <div class="admin-actions">
+                    <button class="admin-btn" @click="loadAdminOpsLogs(true)">筛选</button>
+                    <button class="admin-btn" @click="loadAdminOpsLogs(false)">刷新</button>
+                  </div>
+                </div>
+                <div class="admin-table-wrap">
+                  <table class="admin-table">
+                    <thead>
+                      <tr>
+                        <th style="width:56px;">ID</th>
+                        <th style="width:100px;">账号</th>
+                        <th style="width:110px;">操作类型</th>
+                        <th>操作描述</th>
+                        <th style="width:100px;">对象</th>
+                        <th style="width:110px;">IP</th>
+                        <th style="width:80px;">结果</th>
+                        <th style="width:160px;">时间</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr v-for="l in adminOpsLogs" :key="l.id">
+                        <td>{{ l.id }}</td>
+                        <td>{{ l.username || '-' }}</td>
+                        <td>{{ l.operation_type || '-' }}</td>
+                        <td>{{ l.operation_desc || '-' }}</td>
+                        <td>{{ l.target_type ? (l.target_type + (l.target_id ? '#' + l.target_id : '')) : '-' }}</td>
+                        <td :title="l.ip_address || ''">{{ l.ip_address ? l.ip_address.slice(0, 15) + (l.ip_address.length > 15 ? '…' : '') : '-' }}</td>
+                        <td>
+                          <span :style="{ padding: '2px 8px', borderRadius: '999px', fontSize: '0.76rem', background: l.status === 1 ? '#ecfdf5' : '#fef2f2', color: l.status === 1 ? '#047857' : '#b91c1c' }">{{ l.status === 1 ? '成功' : '失败' }}</span>
+                        </td>
+                        <td>{{ l.created_at ? new Date(l.created_at).toLocaleString() : '-' }}</td>
+                      </tr>
+                      <tr v-if="adminOpsLogs.length === 0"><td colspan="8" style="text-align:center; padding:20px; color:#8fa0b0;">暂无操作日志</td></tr>
+                    </tbody>
+                  </table>
+                </div>
+                <div class="admin-pagination">
+                  <div class="admin-pagination-left">共 {{ adminOpsLogsTotal }} 条</div>
+                  <div class="admin-pagination-right">
+                    <button class="admin-mini-btn" :disabled="adminOpsLogsPage <= 1" @click="adminOpsLogsPage = Math.max(1, adminOpsLogsPage - 1); loadAdminOpsLogs(false)">上一页</button>
+                    <div class="admin-page-indicator">第 {{ adminOpsLogsPage }} 页</div>
+                    <button class="admin-mini-btn" :disabled="adminOpsLogsPage * adminOpsLogsPageSize >= adminOpsLogsTotal" @click="adminOpsLogsPage = adminOpsLogsPage + 1; loadAdminOpsLogs(false)">下一页</button>
+                    <select class="admin-select" v-model.number="adminOpsLogsPageSize" @change="loadAdminOpsLogs(true)">
+                      <option :value="10">10/页</option><option :value="20">20/页</option><option :value="50">50/页</option>
+                    </select>
+                  </div>
+                </div>
               </div>
 
-              <div v-else-if="adminMenu === 'settings'" class="admin-empty">
-                <div class="admin-empty-title">系统设置</div>
-                <div class="admin-empty-text">该模块已预留入口，下一步可接入审核规则、导出配置、接口地址等。</div>
+              <div v-else-if="adminMenu === 'settings'">
+                <div style="display:flex; flex-direction:column; gap:18px;">
+                  <div style="background:white; border:1px solid #eef2f6; border-radius:16px; padding:16px 18px;">
+                    <div style="font-weight:700; font-size:1rem; color:#1d2b3a; margin-bottom:10px;">🎙️ 语音识别参数阈值</div>
+                    <div style="display:grid; grid-template-columns: repeat(2, 1fr); gap: 12px 16px;">
+                      <div class="admin-field"><div class="admin-label">Beam Size (搜索束)</div><input class="admin-input" type="number" v-model.number="adminSystemConfig.asr_beam_size" min="1" step="1" /></div>
+                      <div class="admin-field"><div class="admin-label">Temperature (温度)</div><input class="admin-input" type="number" v-model.number="adminSystemConfig.asr_temperature" min="0" max="2" step="0.1" /></div>
+                      <div class="admin-field"><div class="admin-label">置信度阈值 (0-1)</div><input class="admin-input" type="number" v-model.number="adminSystemConfig.asr_confidence_threshold" min="0" max="1" step="0.05" /></div>
+                      <div class="admin-field"><div class="admin-label">语言代码</div><input class="admin-input" type="text" v-model="adminSystemConfig.asr_language" placeholder="zh / en / auto" /></div>
+                      <div class="admin-field"><div class="admin-label">最短时长 (秒)</div><input class="admin-input" type="number" v-model.number="adminSystemConfig.asr_min_duration_seconds" min="0" step="1" /></div>
+                      <div class="admin-field"><div class="admin-label">最长时长 (秒)</div><input class="admin-input" type="number" v-model.number="adminSystemConfig.asr_max_duration_seconds" min="1" step="1" /></div>
+                      <div style="grid-column: 1 / -1;" class="admin-field"><div class="admin-label">初始提示词 (Initial Prompt)</div><textarea class="admin-input" style="min-height:72px; padding:8px;" v-model="adminSystemConfig.asr_initial_prompt" placeholder="可选，用于引导 Whisper 识别温州话方言口音"></textarea></div>
+                    </div>
+                    <div style="margin-top:12px; display:flex; justify-content:flex-end; gap:10px;">
+                      <button class="admin-btn" @click="loadAdminSystemConfig">重置</button>
+                      <button class="admin-btn" style="background:#2e7d8f; color:white;" @click="saveAdminSystemConfig">保存配置</button>
+                    </div>
+                  </div>
+
+                  <div style="background:white; border:1px solid #eef2f6; border-radius:16px; padding:16px 18px;">
+                    <div style="font-weight:700; font-size:1rem; color:#1d2b3a; margin-bottom:10px;">📣 公告通知下发</div>
+                    <div class="admin-dialog-row" style="margin: 8px 0;"><div class="admin-dialog-label">标题 (可选)</div><input class="dialog-input" type="text" v-model="adminBroadcastTitle" placeholder="例如：系统维护通知" /></div>
+                    <div class="admin-dialog-row" style="margin: 8px 0;"><div class="admin-dialog-label">内容</div><textarea class="dialog-textarea" v-model="adminBroadcastContent" placeholder="对所有启用状态用户下发站内公告，同时可持久化到系统公告位"></textarea></div>
+                    <div style="display:flex; align-items:center; gap:8px; margin: 8px 0 12px;">
+                      <input type="checkbox" id="bc-persist" v-model="adminBroadcastPersistent" />
+                      <label for="bc-persist" style="font-size:0.85rem; color:#334155;">同时持久化为系统公告位 (用户进入平台可见)</label>
+                    </div>
+                    <div style="display:flex; justify-content:flex-end; gap:10px;">
+                      <button class="admin-btn" @click="adminBroadcastTitle = ''; adminBroadcastContent = ''; adminBroadcastPersistent = true;">清空</button>
+                      <button class="admin-btn" style="background:#2e7d8f; color:white;" @click="broadcastAnnouncement">立即下发</button>
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
@@ -1464,6 +1893,27 @@ onMounted(() => {
           <div class="dialog-actions">
             <button class="dialog-btn" @click="closeContentDialog">取消</button>
             <button class="dialog-btn dialog-btn-primary" @click="submitContentDialog">保存</button>
+          </div>
+        </div>
+      </div>
+
+      <div v-if="userRecordingTagDialogVisible" class="dialog-mask" @click.self="closeUserRecordingTagDialog">
+        <div class="dialog-card admin-dialog">
+          <div class="dialog-title">为录音 #{{ userRecordingTagRow?.id ?? '' }} 选择标签</div>
+          <div v-if="userTagList.length === 0" style="padding:14px 0; text-align:center; color:#8fa0b0;">暂无标签，可直接新增</div>
+          <div v-else style="display:flex; flex-wrap:wrap; gap:8px; max-height:300px; overflow:auto; padding:4px 2px;">
+            <label v-for="t in userTagList" :key="t.id" :style="{ display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '6px 10px', border: '1px solid #dbe4ee', borderRadius: '999px', cursor: 'pointer', background: userRecordingTagSelected.includes(t.id) ? '#e6f4ff' : 'white' }">
+              <input type="checkbox" :checked="userRecordingTagSelected.includes(t.id)" @change="toggleUserRecordingTagOption(t.id)" />
+              <span style="font-size:0.88rem;">{{ t.name }}</span>
+            </label>
+          </div>
+          <div style="display:flex; gap:8px; margin-top:12px;">
+            <input class="dialog-input" style="flex:1; margin:0;" type="text" v-model="userRecordingTagAddValue" placeholder="没有想要的？新增标签" />
+            <button class="admin-mini-btn" @click="submitUserRecordingTagAdd">新增</button>
+          </div>
+          <div class="dialog-actions">
+            <button class="dialog-btn dialog-btn-secondary" @click="closeUserRecordingTagDialog">取消</button>
+            <button class="dialog-btn dialog-btn-primary" @click="submitUserRecordingTagDialog">保存</button>
           </div>
         </div>
       </div>
@@ -1552,6 +2002,24 @@ onMounted(() => {
           <div class="dialog-actions">
             <button class="dialog-btn dialog-btn-secondary" @click="closeAdminTagRenameDialog">取消</button>
             <button class="dialog-btn dialog-btn-primary" @click="submitAdminTagRenameDialog">保存</button>
+          </div>
+        </div>
+      </div>
+
+      <div v-if="adminRecordingTagDialogVisible" class="dialog-mask" @click.self="closeRecordingTagDialog">
+        <div class="dialog-card admin-dialog">
+          <div class="dialog-title">为录音 #{{ adminRecordingTagRow?.id ?? '' }} 选择标签</div>
+          <div v-if="adminTagList.length === 0" style="padding:14px 0; text-align:center; color:#8fa0b0;">暂无标签字典，请先在「标签管理」新增</div>
+          <div v-else style="display:flex; flex-wrap:wrap; gap:8px; max-height:300px; overflow:auto; padding:4px 2px;">
+            <label v-for="t in adminTagList" :key="t.id" :style="{ display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '6px 10px', border: '1px solid #dbe4ee', borderRadius: '999px', cursor: 'pointer', background: adminRecordingTagSelected.includes(t.id) ? '#e6f4ff' : 'white' }">
+              <input type="checkbox" :checked="adminRecordingTagSelected.includes(t.id)" @change="toggleRecordingTagOption(t.id)" />
+              <span style="font-size:0.88rem;">{{ t.name }}</span>
+              <span style="font-size:0.72rem; color:#94a3b8;">×{{ t.count ?? 0 }}</span>
+            </label>
+          </div>
+          <div class="dialog-actions">
+            <button class="dialog-btn dialog-btn-secondary" @click="closeRecordingTagDialog">取消</button>
+            <button class="dialog-btn dialog-btn-primary" @click="submitRecordingTagDialog">保存</button>
           </div>
         </div>
       </div>

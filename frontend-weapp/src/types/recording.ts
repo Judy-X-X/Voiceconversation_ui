@@ -6,4 +6,6 @@ export interface RecordingItem {
   content?: string;
   createdAt?: string;
   created_at?: string;
+  tag_list?: string[];
+  tag_ids?: number[];
 }

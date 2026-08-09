@@ -180,3 +180,80 @@
   color: #3a4b5c;
   font-size: 24rpx;
 }
+
+.tagSection {
+  max-width: 640rpx;
+  margin: 0 auto 12rpx;
+  padding: 18rpx 18rpx 16rpx;
+  border-radius: 20rpx;
+  background: #f8fafc;
+  border: 1px solid $color-border;
+  text-align: left;
+}
+
+.tagTitle {
+  display: block;
+  font-size: 26rpx;
+  color: $color-text-primary;
+  font-weight: $font-weight-semibold;
+}
+
+.tagHint {
+  margin-top: 10rpx;
+  font-size: 24rpx;
+  color: $color-text-tertiary;
+}
+
+.tagList {
+  margin-top: 12rpx;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12rpx;
+  max-height: 220rpx;
+  overflow: auto;
+}
+
+.tagChip {
+  padding: 10rpx 18rpx;
+  border-radius: 999rpx;
+  background: #fff;
+  border: 1px solid #dbe4ee;
+}
+
+.tagChipActive {
+  background: #e6f4ff;
+  border-color: #a7d4ff;
+}
+
+.tagChipText {
+  font-size: 24rpx;
+  color: #334155;
+}
+
+.tagAddRow {
+  margin-top: 14rpx;
+  display: flex;
+  gap: 12rpx;
+  align-items: center;
+}
+
+.tagInput {
+  flex: 1;
+  height: 72rpx;
+  padding: 0 18rpx;
+  border: 1px solid $color-border;
+  border-radius: 18rpx;
+  background: #fff;
+  font-size: 24rpx;
+}
+
+.tagAddButton {
+  @include button-reset;
+  min-width: 136rpx;
+  height: 72rpx;
+  border-radius: 18rpx;
+  background: #eef4f8;
+  color: #2e7d8f;
+  font-size: 24rpx;
+  font-weight: $font-weight-semibold;
+}
