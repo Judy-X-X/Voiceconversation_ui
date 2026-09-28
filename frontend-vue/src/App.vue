@@ -83,7 +83,7 @@ const adminOpsLogsStartTime = ref('')
 const adminOpsLogsEndTime = ref('')
 const adminOpsLogsOpType = ref('')
 const adminOpsLogsKeyword = ref('')
-const adminOpTypeOptions = ['登录','审核','删除','导出','修改用户状态','发送站内信','下发公告','修改系统配置','系统设置','新增标签','编辑标签','删除标签','录音打标签','其他']
+const adminOpTypeOptions = ['登录','审核','删除','导出','修改用户状态','修改用户角色','发送站内信','下发公告','修改系统配置','系统设置','新增标签','编辑标签','删除标签','录音打标签','其他']
 
 const adminSystemConfig = ref({})
 const adminBroadcastTitle = ref('')
@@ -119,6 +119,17 @@ const getBaseUrl = () => {
   return backendUrl.value.replace('/upload', '')
 }
 
+const formatDateInputValue = (date) => {
+  const d = date instanceof Date ? date : new Date(date)
+  if (Number.isNaN(d.getTime())) {
+    return ''
+  }
+  const yyyy = String(d.getFullYear())
+  const mm = String(d.getMonth() + 1).padStart(2, '0')
+  const dd = String(d.getDate()).padStart(2, '0')
+  return `${yyyy}-${mm}-${dd}`
+}
+
 const apiFetch = (path, options = {}) => {
   const config = {
     credentials: 'include',
@@ -134,6 +145,50 @@ const apiFetch = (path, options = {}) => {
     }
   }
   return fetch(`${getBaseUrl()}${path}`, config)
+}
+
+const loadAdminEarliestRecordingDate = async () => {
+  const res = await apiFetch('/api/admin/recordings/earliest-date')
+  const data = await res.json()
+  if (!res.ok || !data.success) {
+    throw new Error(data.message || '获取最早录音时间失败')
+  }
+  return typeof data.data === 'string' ? data.data : ''
+}
+
+const loadAdminEarliestOpsLogDate = async () => {
+  const res = await apiFetch('/api/admin/operation-logs/earliest-date')
+  const data = await res.json()
+  if (!res.ok || !data.success) {
+    throw new Error(data.message || '获取最早操作日志时间失败')
+  }
+  return typeof data.data === 'string' ? data.data : ''
+}
+
+const initAdminDefaultTimeFilters = async () => {
+  const today = formatDateInputValue(new Date())
+  if (!adminRecordingsEndTime.value) {
+    adminRecordingsEndTime.value = today
+  }
+  if (!adminOpsLogsEndTime.value) {
+    adminOpsLogsEndTime.value = today
+  }
+  if (!adminRecordingsStartTime.value) {
+    try {
+      const earliest = await loadAdminEarliestRecordingDate()
+      adminRecordingsStartTime.value = earliest || today
+    } catch (e) {
+      adminRecordingsStartTime.value = today
+    }
+  }
+  if (!adminOpsLogsStartTime.value) {
+    try {
+      const earliest = await loadAdminEarliestOpsLogDate()
+      adminOpsLogsStartTime.value = earliest || today
+    } catch (e) {
+      adminOpsLogsStartTime.value = today
+    }
+  }
 }
 
 const normalizeUser = (user = {}) => ({
@@ -220,8 +275,17 @@ const login = async () => {
     currentUser.value = normalizeUser(data.user)
     loginAnimating.value = true
     setTimeout(async () => {
-      currentView.value = 'records'
-      await loadRecordings()
+      if (currentUser.value?.role === '管理员') {
+        try {
+          await showAdmin()
+        } catch (e) {
+          currentView.value = 'admin'
+          alert('进入管理后台失败: ' + (e?.message || '未知错误'))
+        }
+      } else {
+        currentView.value = 'records'
+        await loadRecordings()
+      }
       loginAnimating.value = false
     }, 300)
   } catch (e) {
@@ -272,11 +336,19 @@ const toggleAuthMode = () => {
   authMode.value = authMode.value === 'login' ? 'register' : 'login'
 }
 
-const showRecorder = () => {
+const showRecorder = async () => {
+  if (currentUser.value?.role === '管理员') {
+    await showAdmin()
+    return
+  }
   currentView.value = 'recorder'
 }
 
 const showRecords = async () => {
+  if (currentUser.value?.role === '管理员') {
+    await showAdmin()
+    return
+  }
   currentView.value = 'records'
   await loadRecordings()
 }
@@ -341,6 +413,7 @@ const showAdmin = async () => {
   adminRecordingsPage.value = 1
   adminUsersPage.value = 1
   adminSelectedRecordingIds.value = []
+  await initAdminDefaultTimeFilters()
   await loadAdminTags()
   adminSystemConfig.value = {}
   try { await loadAdminSystemConfig() } catch (e) {}
@@ -784,7 +857,7 @@ const loadAdminSystemConfig = async () => {
 
 const saveAdminSystemConfig = async () => {
   const payload = {}
-  const fields = ['asr_beam_size','asr_temperature','asr_confidence_threshold','asr_min_duration_seconds','asr_max_duration_seconds','asr_language','asr_initial_prompt']
+  const fields = ['asr_beam_size','asr_temperature','asr_no_speech_threshold','asr_logprob_threshold','asr_compression_ratio_threshold','asr_min_duration_seconds','asr_max_duration_seconds','asr_language','asr_initial_prompt']
   for (const k of fields) {
     if (adminSystemConfig.value[k] !== undefined) {
       payload[k] = String(adminSystemConfig.value[k] ?? '')
@@ -873,6 +946,22 @@ const toggleAdminUserStatus = async (row) => {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ status: next })
+  })
+  const data = await res.json()
+  if (!res.ok || !data.success) throw new Error(data.message || '操作失败')
+  await loadAdminUsers(false)
+}
+
+const toggleAdminUserRole = async (row) => {
+  if (!row?.id) return
+  const current = row.role === '管理员' ? '管理员' : '普通用户'
+  const next = current === '管理员' ? '普通用户' : '管理员'
+  const confirmed = window.confirm(`确定将用户 #${row.id} 角色改为「${next}」吗？`)
+  if (!confirmed) return
+  const res = await apiFetch(`/api/admin/users/${row.id}/role`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ role: next })
   })
   const data = await res.json()
   if (!res.ok || !data.success) throw new Error(data.message || '操作失败')
@@ -1217,10 +1306,7 @@ const openProfileDialog = (mode) => {
   profileDialogValue.value = ''
   profileDialogValue2.value = ''
 
-  if (mode === 'role') {
-    profileDialogTitle.value = '设置角色'
-    profileDialogValue.value = currentUser.value?.role || '普通用户'
-  } else if (mode === 'nickname') {
+  if (mode === 'nickname') {
     profileDialogTitle.value = '修改名字'
     profileDialogValue.value = currentUser.value?.nickname || ''
   } else if (mode === 'avatar') {
@@ -1247,9 +1333,6 @@ const submitProfileDialog = async () => {
   }
 
   const payload = {}
-  if (profileDialogMode.value === 'role') {
-    payload.role = profileDialogValue.value
-  }
   if (profileDialogMode.value === 'nickname') {
     if (!profileDialogValue.value.trim()) {
       alert('请输入名字')
@@ -1343,8 +1426,14 @@ onMounted(() => {
   })
   loadCurrentUser(true).then((loggedIn) => {
     if (loggedIn) {
-      currentView.value = 'records'
-      loadRecordings()
+      if (currentUser.value?.role === '管理员') {
+        showAdmin().catch(() => {
+          currentView.value = 'admin'
+        })
+      } else {
+        currentView.value = 'records'
+        loadRecordings()
+      }
     }
   })
 })
@@ -1372,7 +1461,7 @@ onMounted(() => {
 
     <div v-else class="view main-view">
       <div class="main-content">
-        <div v-if="currentView === 'recorder'" class="card recorder-card">
+        <div v-if="currentView === 'recorder' && currentUser?.role !== '管理员'" class="card recorder-card">
           <div class="recorder-header">
             <div class="recorder-title-row">
               <span class="recorder-title-icon">📱</span>
@@ -1441,7 +1530,7 @@ onMounted(() => {
 
         </div>
 
-        <div v-else-if="currentView === 'records'" class="records-list">
+        <div v-else-if="currentView === 'records' && currentUser?.role !== '管理员'" class="records-list">
           <h2 style="margin: 0 0 16px 8px; font-size: 1.4rem; color: #1d2b3a;">🗂️ 录音记录</h2>
           <div id="recordsContainer">
             <div v-if="recordings.length === 0" style="text-align:center; color:#8fa0b0; padding: 40px;">暂无记录</div>
@@ -1508,9 +1597,6 @@ onMounted(() => {
         <div v-else-if="currentView === 'admin'" class="admin-page">
           <div class="admin-header">
             <div class="admin-title">管理后台</div>
-            <div class="admin-header-actions">
-              <button class="admin-header-btn" @click="showRecords">返回前台</button>
-            </div>
           </div>
 
           <div class="admin-layout">
@@ -1658,6 +1744,7 @@ onMounted(() => {
                           <button class="admin-mini-btn" @click="openAdminMessageDialog(row)">发送站内信息</button>
                           <button class="admin-mini-btn" @click="openAdminUserDetail(row)">查看详情</button>
                           <button class="admin-mini-btn" @click="toggleAdminUserStatus(row)">{{ row.status === '禁用' ? '启用' : '禁用' }}</button>
+                          <button class="admin-mini-btn" @click="toggleAdminUserRole(row)">{{ row.role === '管理员' ? '设为普通用户' : '设为管理员' }}</button>
                         </td>
                       </tr>
                       <tr v-if="adminUsers.length === 0">
@@ -1786,11 +1873,14 @@ onMounted(() => {
               <div v-else-if="adminMenu === 'settings'">
                 <div style="display:flex; flex-direction:column; gap:18px;">
                   <div style="background:white; border:1px solid #eef2f6; border-radius:16px; padding:16px 18px;">
-                    <div style="font-weight:700; font-size:1rem; color:#1d2b3a; margin-bottom:10px;">🎙️ 语音识别参数阈值</div>
+                    <div style="font-weight:700; font-size:1rem; color:#1d2b3a; margin-bottom:6px;">🎙️ 语音识别参数阈值</div>
+                    <div style="font-size:0.85rem; color:#6b7a89; margin-bottom:10px;">其中“无语音阈值 / 对数概率阈值 / 压缩比阈值”已直接接入 Whisper 识别。</div>
                     <div style="display:grid; grid-template-columns: repeat(2, 1fr); gap: 12px 16px;">
                       <div class="admin-field"><div class="admin-label">Beam Size (搜索束)</div><input class="admin-input" type="number" v-model.number="adminSystemConfig.asr_beam_size" min="1" step="1" /></div>
                       <div class="admin-field"><div class="admin-label">Temperature (温度)</div><input class="admin-input" type="number" v-model.number="adminSystemConfig.asr_temperature" min="0" max="2" step="0.1" /></div>
-                      <div class="admin-field"><div class="admin-label">置信度阈值 (0-1)</div><input class="admin-input" type="number" v-model.number="adminSystemConfig.asr_confidence_threshold" min="0" max="1" step="0.05" /></div>
+                      <div class="admin-field"><div class="admin-label">无语音阈值</div><input class="admin-input" type="number" v-model.number="adminSystemConfig.asr_no_speech_threshold" min="0" max="1" step="0.05" /></div>
+                      <div class="admin-field"><div class="admin-label">对数概率阈值</div><input class="admin-input" type="number" v-model.number="adminSystemConfig.asr_logprob_threshold" min="-5" max="0" step="0.1" /></div>
+                      <div class="admin-field"><div class="admin-label">压缩比阈值</div><input class="admin-input" type="number" v-model.number="adminSystemConfig.asr_compression_ratio_threshold" min="1" max="5" step="0.1" /></div>
                       <div class="admin-field"><div class="admin-label">语言代码</div><input class="admin-input" type="text" v-model="adminSystemConfig.asr_language" placeholder="zh / en / auto" /></div>
                       <div class="admin-field"><div class="admin-label">最短时长 (秒)</div><input class="admin-input" type="number" v-model.number="adminSystemConfig.asr_min_duration_seconds" min="0" step="1" /></div>
                       <div class="admin-field"><div class="admin-label">最长时长 (秒)</div><input class="admin-input" type="number" v-model.number="adminSystemConfig.asr_max_duration_seconds" min="1" step="1" /></div>
@@ -1851,9 +1941,7 @@ onMounted(() => {
             <div class="account-row">
               <div class="account-label">所属角色</div>
               <div class="account-value">{{ getRoleLabel() }}</div>
-              <div class="account-actions">
-                <button class="link-action" @click="openProfileDialog('role')">去设置</button>
-              </div>
+              <div class="account-actions"></div>
             </div>
 
             <div class="account-row">
@@ -2026,8 +2114,8 @@ onMounted(() => {
 
       <div class="footer-nav">
         <div class="nav-tabs">
-          <button class="nav-tab" :class="{ active: currentView === 'records' }" @click="showRecords">记录</button>
-          <button class="nav-tab" :class="{ active: currentView === 'recorder' }" @click="showRecorder">录音</button>
+          <button v-if="currentUser?.role !== '管理员'" class="nav-tab" :class="{ active: currentView === 'records' }" @click="showRecords">记录</button>
+          <button v-if="currentUser?.role !== '管理员'" class="nav-tab" :class="{ active: currentView === 'recorder' }" @click="showRecorder">录音</button>
           <button v-if="currentUser?.role === '管理员'" class="nav-tab" :class="{ active: currentView === 'admin' }" @click="showAdmin">管理后台</button>
         </div>
 
@@ -2050,11 +2138,7 @@ onMounted(() => {
       <div class="dialog-card">
         <div class="dialog-title">{{ profileDialogTitle }}</div>
 
-        <select v-if="profileDialogMode === 'role'" v-model="profileDialogValue" class="dialog-input">
-          <option v-for="role in roleOptions" :key="role" :value="role">{{ role }}</option>
-        </select>
-
-        <template v-else-if="profileDialogMode === 'avatar'">
+        <template v-if="profileDialogMode === 'avatar'">
           <div class="avatar-picker">
             <button
               v-for="avatar in avatarOptions"
